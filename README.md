@@ -2,6 +2,10 @@
 
 A final project for EECE 5642 - Data Visualization
 
+## Setup
+1. Clone this repo
+2. `git submodule update --init`
+
 ## Usage
 
 ### Requirements
