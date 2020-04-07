@@ -18,11 +18,7 @@ from .utils.benchmark import benchmark_timing
 
 def main(args):
     dataset = benchmark_timing('Reading dataset', CovidDataset, args.world_data, args.usa_data)
-
-    benchmark_timing('Drawing world', dataset.determine_world_mapping)
-
-    dataset.reset_world()
-    benchmark_timing('Drawing world data', dataset.plot_data_as_world_colors)
+    benchmark_timing('Visualizing data', dataset.plot_data_as_world_colors, shape_folder=args.shapefiles, level=args.level)
 
     plt.show()
 
@@ -37,6 +33,8 @@ if __name__ == '__main__':
     _parser = argparse.ArgumentParser(description='')
     _parser.add_argument('--world-data', default='covid-19-data/data/time-series-19-covid-combined.csv', help='')
     _parser.add_argument('--usa-data', default='covid-19-data/data/us.csv', help='')
+    _parser.add_argument('--shapefiles', default='shapefiles', help='')
+    _parser.add_argument('--level', default=0, type=int, help='')
     _args = _parser.parse_args()
 
     # Track runtime
