@@ -3,9 +3,6 @@ by Keelin Becker-Wheeler, Apr 2020
 """
 
 from matplotlib.collections import PatchCollection
-from matplotlib.patches import PathPatch
-from mpl_toolkits.basemap import Basemap
-from matplotlib.patches import Polygon
 from bisect import bisect
 
 import matplotlib.pyplot as plt
@@ -13,42 +10,47 @@ import pandas as pd
 import numpy as np
 import datetime
 
-import sys
-
-admin0_location_fixes = {
-    'Bahamas': 'Bahamas, The',
-    'Burma': 'Myanmar',
-    'Congo (Brazzaville)': 'Congo, Rep.',
-    'Congo (Kinshasa)': 'Congo, Dem. Rep.',
-    'Cote d\'Ivoire': 'Côte d\'Ivoire',
-    'Diamond Princess': None,
-    'Egypt': 'Egypt, Arab Rep.',
-    'Eswatini': 'eSwatini',
-    'Gambia': 'Gambia, The',
-    'Holy See': 'Vatican (Holy See)',
-    'Iran': 'Iran, Islamic Rep.',
-    'Korea, South': 'Korea, Rep.',
-    'Kyrgyzstan': 'Kyrgyz Republic',
-    'Laos': 'Lao PDR',
-    'MS Zaandam': None,
-    'North Macedonia': 'Macedonia, FYR',
-    'Russia': 'Russian Federation',
-    'Saint Kitts and Nevis': 'St. Kitts and Nevis',
-    'Saint Lucia': 'St. Lucia',
-    'Saint Vincent and the Grenadines': 'St. Vincent and the Grenadines',
-    'Slovakia': 'Slovak Republic',
-    'Syria': 'Syrian Arab Republic',
-    'Taiwan*': 'Taiwan',
-    'US': 'United States of America',
-    'Venezuela': 'Venezuela, RB',
-    'West Bank and Gaza': 'Palestine (West Bank and Gaza)',
-}
-
-admin1_location_fixes = {
-}
+from .world_shapes import create_world_map, get_location_to_shape_mapping, get_drawable_patches
+# from .world_shapes import search_for_location_fix
 
 
 class CovidDataset:
+
+    # Mapping of location names to corrected standard location names are provided for each granularity level
+    # Necessary due to mismatch between location names in covid dataset and standard location names
+
+    admin0_location_fixes = {
+        'Bahamas': 'Bahamas, The',
+        'Burma': 'Myanmar',
+        'Congo (Brazzaville)': 'Congo, Rep.',
+        'Congo (Kinshasa)': 'Congo, Dem. Rep.',
+        'Cote d\'Ivoire': 'Côte d\'Ivoire',
+        'Diamond Princess': None,
+        'Egypt': 'Egypt, Arab Rep.',
+        'Eswatini': 'eSwatini',
+        'Gambia': 'Gambia, The',
+        'Holy See': 'Vatican (Holy See)',
+        'Iran': 'Iran, Islamic Rep.',
+        'Korea, South': 'Korea, Rep.',
+        'Kyrgyzstan': 'Kyrgyz Republic',
+        'Laos': 'Lao PDR',
+        'MS Zaandam': None,
+        'North Macedonia': 'Macedonia, FYR',
+        'Russia': 'Russian Federation',
+        'Saint Kitts and Nevis': 'St. Kitts and Nevis',
+        'Saint Lucia': 'St. Lucia',
+        'Saint Vincent and the Grenadines': 'St. Vincent and the Grenadines',
+        'Slovakia': 'Slovak Republic',
+        'Syria': 'Syrian Arab Republic',
+        'Taiwan*': 'Taiwan',
+        'US': 'United States of America',
+        'Venezuela': 'Venezuela, RB',
+        'West Bank and Gaza': 'Palestine (West Bank and Gaza)',
+    }
+
+    admin1_location_fixes = {
+    }
+
     def __init__(self, world_file, usa_file):
         """
         :param world_file: File path to world data (e.g. time-series-19-covid-combined.csv)
@@ -70,7 +72,8 @@ class CovidDataset:
         world_data.rename({world_data.columns[i]: n for i, n in enumerate(col_names)}, axis=1, inplace=True)
 
         # Map the US data with the following column names to the desired order
-        # -- UID,iso2,iso3,code3,FIPS,Admin2,Province_State,Country_Region,Lat,Long_,Combined_Key,Population,Date,Confirmed,Deaths
+        # -- UID,iso2,iso3,code3,FIPS,Admin2,Province_State,Country_Region,
+        #            Lat,Long_,Combined_Key,Population,Date,Confirmed,Deaths
         col_order = [7, 6, 5, 8, 9, 12, 13, 14]
         usa_data = pd.read_csv(usa_file, header=0)
         usa_data = usa_data[[usa_data.columns[i] for i in col_order]]
@@ -105,14 +108,8 @@ class CovidDataset:
             idx = 0
         return self.all_dates[idx]
 
-    def determine_world_mapping(self, fill_color=True, draw_borders=True):
+    def determine_world_mapping(self):
         """Draws a world map and adds a 'pos' field to data which encodes the (x,y) world position.
-
-        :param fill_color: Whether to fill the graph with color, defaults to True.
-        :param draw_borders: Whether to draw state/country borders, defaults to True.
-
-        :type fill_color: bool, optional
-        :type draw_borders: bool, optional
 
         :returns: Map figure on which geographical data can be drawn
         :rtype: matplotlib.figure.Figure
@@ -120,25 +117,11 @@ class CovidDataset:
 
         fig = plt.figure()
         ax = fig.gca()
-        ax.set_aspect('equal')
 
-        # Create a map projection space in order to display nodes at geographical positions.
-        m = Basemap(projection='gall', resolution='c', ax=ax)
-
-        m.drawparallels(np.arange(-90, 90, 30), labels=[1, 0, 0, 0])
-        m.drawmeridians(np.arange(m.lonmin, m.lonmax+30, 60), labels=[0, 0, 0, 1])
-
-        if fill_color:
-            m.fillcontinents(color="#0D9C29", lake_color="#5D9BFF", zorder=0)
-        if draw_borders:
-            m.drawmapboundary(fill_color="#5D9BFF" if fill_color else None, zorder=-1)
-            m.drawcountries(color='#585858', linewidth=1)
-            m.drawstates(linewidth=0.2)
-            m.drawcoastlines(linewidth=1)
+        self.world = create_world_map(ax, fill_color=False, draw_borders=False)
 
         # Use map projection to convert long/lat into (x,y) positions
-        self.data['pos'] = list(zip(*m(list(self.data.Longitude), list(self.data.Latitude))))
-        self.world = m
+        self.data['pos'] = list(zip(*self.world(list(self.data.Longitude), list(self.data.Latitude))))
 
         return fig
 
@@ -154,8 +137,6 @@ class CovidDataset:
 
         :returns: Map figure on which geographical data was drawn
         :rtype: matplotlib.figure.Figure
-
-        :raises: NotImplementedError, ValueError
         """
 
         if date is None:
@@ -167,22 +148,72 @@ class CovidDataset:
 
         if self.world is None:
             # Generate empty world if not already exists
-            fig = self.determine_world_mapping(fill_color=False, draw_borders=False)
+            fig = self.determine_world_mapping()
         else:
             fig = plt.gcf()
 
         ax = fig.gca()
         ax.set_facecolor("#5D9BFF")
 
-        # Get unique names of locations at specified level
+        locations, info_key, location_fixes = self.load_shape_info_at_level(level, shape_folder=shape_folder)
+        rev_location_fixes = {v: k for k, v in location_fixes.items() if v is not None}
 
-        Admin0, Admin1, _ = zip(*list(self.data.loc[date].index))
+        ##############################
+        # If you need to manually check all location fix possibilities for a given location, uncomment the following:
+
+        # debug_location = 'Congo'
+        # search_for_location_fix(self.world, debug_location, info_key)
+        # sys.exit(0)
+
+        # You may also let the program search for and automatically print potential location fixes by setting the following
+        debug_new_location_fixes = False
+        ##############################
+
+        shape_map, empty_patches = get_location_to_shape_mapping(self.world, locations, info_key, rev_location_fixes)
+        patches = get_drawable_patches(self.world, locations, shape_map, info_key, location_fixes,
+                                       debug_new_location_fixes=debug_new_location_fixes)
+
+        # Store the polygons of locations which do not correspond with data
+        patches[None] = empty_patches
+
+        # Draw shapes with color according to associated location data
+        for k, v in patches.items():
+            if v:
+                if k is None:
+                    facecolor = 'k'
+                    zorder = 2  # Make sure unknown locations are drawn behind known locations, in case of overlap
+                else:
+                    # TODO: change color based on data
+                    facecolor = '#0D9C29'
+                    zorder = 3
+
+                ax.add_collection(PatchCollection(v, facecolor=facecolor, edgecolor='k', linewidths=1., zorder=zorder))
+
+        return fig
+
+    def load_shape_info_at_level(self, level, shape_folder='.'):
+        """
+        :param level: Granularity of world data, higher is more detail. Either 0 or 1, defaults to 0
+        :param shape_folder: Folder in which shape files exist, defaults to '.'
+
+        :type level: int
+        :type shape_folder: str, optional
+
+        :returns: A list of locations at the given level, the info_key used to get the location name from the shape info data,
+                  and a dictionary mapping location names to corrected names which exist in the shape info data
+        :rtype: ([str], str, {str:str})
+
+        :raises: NotImplementedError, ValueError
+        """
+
+        # Get unique names of locations
+        Admin0, Admin1, _ = zip(*list(self.data.loc[self.all_dates[0]].index))
 
         if level == 0:
             locations = set(Admin0)
             shape_file = 'ne_10m_admin_0_countries'
             info_key = 'NAME_SORT'
-            location_fixes = admin0_location_fixes
+            location_fixes = self.admin0_location_fixes
 
         elif level == 1:
             # TODO: Check shapes and location fixes for level 1 granularity
@@ -191,104 +222,17 @@ class CovidDataset:
             locations = set(Admin1)
             shape_file = 'ne_10m_admin_1_states_provinces'
             info_key = 'admin'
-            location_fixes = admin1_location_fixes
+            location_fixes = self.admin1_location_fixes
 
         else:
             raise ValueError(f'unexpected level={level}')
 
-        rev_location_fixes = {v: k for k, v in location_fixes.items() if v is not None}
-
         self.world.readshapefile(f'{shape_folder}/{shape_file}', 'shapes', drawbounds=False)
 
-        ##############################
-        # If you need to manually check all location fix possibilities for a given location, uncomment the following:
-        # shapefile_debug(self.world, 'Congo') # This will also end the program here
-        ##############################
-
-        # Create map of locations to shapes
-        patches = {None: []}
-        shape_map = {None: None}
-
-        for info, shape in zip(self.world.shapes_info, self.world.shapes):
-            # Add shape to map
-            if info[info_key] not in shape_map:
-                shape_map[info[info_key]] = []
-            shape_map[info[info_key]].append(shape)
-
-            # Add shape to empty patches if not associated with data
-            if info[info_key] not in locations:
-                patches[None].append(Polygon(np.array(shape), True))
-            elif info[info_key] in rev_location_fixes:
-                if rev_location_fixes[info[info_key]] not in locations:
-                    patches[None].append(Polygon(np.array(shape), True))
-
-        # Find shapes for each location with data
-        for location in sorted(locations):
-            try:
-                shapes = shape_map[location]
-
-            except KeyError:
-                # Check if a fix exists for location name inconsistencies
-                if location in location_fixes:
-                    location = location_fixes[location]
-                    shapes = shape_map[location]
-
-                # Search for and print potential fixes for the location name inconsistencies
-                # (this can be manually accomplished using the commented out shapefile_debug() line above)
-                else:
-                    for i, info in enumerate(self.world.shapes_info):
-                        good = False
-                        for k, v in info.items():
-                            if isinstance(v, str) and location in v:
-                                good = True
-                                break
-
-                        if good:
-                            print(f"\'{location}\': \'{info[info_key]}\',")
-                            break
-                        elif i == len(self.world.shapes_info)-1:
-                            print(f"\'{location}\': None,")
-                            break
-
-                    shapes = None
-
-            finally:
-                if shapes is not None:
-                    # Add shapes to be drawn
-                    patches[location] = []
-                    for shape in shapes:
-                        patches[location].append(Polygon(np.array(shape), True))
-
-        # Draw shapes with color according to associated location data
-        for k, v in patches.items():
-            if k is None:
-                facecolor = 'k'
-            else:
-                # TODO: change color based on data
-                facecolor = '#0D9C29'
-
-            ax.add_collection(PatchCollection(v, facecolor=facecolor, edgecolor='k', linewidths=1., zorder=2))
-
-        return fig
+        return locations, info_key, location_fixes
 
     def reset_world(self):
         """ Clears the world data associated with the dataset.
         """
 
         self.world = None
-
-
-def shapefile_debug(world, location):
-    for i, info in enumerate(world.shapes_info):
-        good = False
-        for k, v in info.items():
-            if isinstance(v, str) and location in v:
-                good = True
-                break
-
-        if good:
-            for k, v in info.items():
-                sys.stdout.buffer.write(f'{k}: {v}\n'.encode('utf-8'))
-            print('------------------------------------------', flush=True)
-
-    sys.exit(0)
