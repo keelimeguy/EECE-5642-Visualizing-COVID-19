@@ -149,7 +149,7 @@ class CovidDataset:
         date = self.get_closest_previous_date(date)
 
         if locations is None:
-            Admin = zip(*list(self.data.loc[date].index))
+            Admin = tuple(zip(*list(self.data.loc[date].index)))
             locations = sorted(list(set(Admin[level])))
 
         data_dict = {}
