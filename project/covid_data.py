@@ -124,7 +124,7 @@ class CovidDataset:
         """
         :param locations: A list of location names to get data for. Will use all locations if None, defaults to None
         :param date: Timestamp at which to get data. Will use current time if None, defaults to None
-        :param level: Granularity of world data, higher is more detail. Either 0 or 1, defaults to 0
+        :param level: Granularity of world data, higher is more detail. Either 0, 1 or 2, defaults to 0
         :param target: The target column to get data from, defaults to 'Confirmed'
 
         :type locations: [str]|None, optional
