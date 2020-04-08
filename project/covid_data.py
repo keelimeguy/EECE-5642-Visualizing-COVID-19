@@ -12,6 +12,7 @@ import datetime
 
 from .world_shapes import create_world_map, get_location_to_shape_mapping, get_drawable_patches
 # from .world_shapes import search_for_location_fix
+# import sys
 
 
 class CovidDataset:
@@ -155,36 +156,42 @@ class CovidDataset:
         ax = fig.gca()
         ax.set_facecolor("#5D9BFF")
 
-        locations, info_key, location_fixes = self.load_shape_info_at_level(level, shape_folder=shape_folder)
+        locations, info_keys, location_fixes = self.load_shape_info_at_level(level, shape_folder=shape_folder)
         rev_location_fixes = {v: k for k, v in location_fixes.items() if v is not None}
 
         ##############################
         # If you need to manually check all location fix possibilities for a given location, uncomment the following:
 
-        # debug_location = 'Congo'
-        # search_for_location_fix(self.world, debug_location, info_key)
+        # debug_location = 'Greenland'
+        # search_for_location_fix(self.world, debug_location, info_keys)
         # sys.exit(0)
 
         # You may also let the program search for and automatically print potential location fixes by setting the following
         debug_new_location_fixes = False
         ##############################
 
-        shape_map, empty_patches = get_location_to_shape_mapping(self.world, locations, info_key, rev_location_fixes)
-        patches = get_drawable_patches(self.world, locations, shape_map, info_key, location_fixes,
+        shape_map, empty_patches = get_location_to_shape_mapping(self.world, locations, info_keys, rev_location_fixes)
+        patches = get_drawable_patches(self.world, locations, shape_map, info_keys, location_fixes,
                                        debug_new_location_fixes=debug_new_location_fixes)
 
         # Store the polygons of locations which do not correspond with data
         patches[None] = empty_patches
 
         # Draw shapes with color according to associated location data
+        colors = plt.cm.get_cmap('Reds')
+        maximum = np.log(self.data.loc[date]['Confirmed'].max())
         for k, v in patches.items():
             if v:
                 if k is None:
                     facecolor = 'k'
                     zorder = 2  # Make sure unknown locations are drawn behind known locations, in case of overlap
+
                 else:
-                    # TODO: change color based on data
-                    facecolor = '#0D9C29'
+                    datapoint = self.data.loc[date].query(f'Admin{level} == "{k}"')['Confirmed'].sum()
+                    value = np.log(datapoint) / maximum if datapoint != 0 else 0
+
+                    # Change color based on data
+                    facecolor = colors(value)
                     zorder = 3
 
                 ax.add_collection(PatchCollection(v, facecolor=facecolor, edgecolor='k', linewidths=1., zorder=zorder))
@@ -199,9 +206,9 @@ class CovidDataset:
         :type level: int
         :type shape_folder: str, optional
 
-        :returns: A list of locations at the given level, the info_key used to get the location name from the shape info data,
-                  and a dictionary mapping location names to corrected names which exist in the shape info data
-        :rtype: ([str], str, {str:str})
+        :returns: A list of locations at the given level, a list of keys used to get the location from the shape info data,
+                  and a dictionary mapping location names to corrected names in the shape info data
+        :rtype: ([str], [str], {str:str})
 
         :raises: NotImplementedError, ValueError
         """
@@ -210,18 +217,18 @@ class CovidDataset:
         Admin0, Admin1, _ = zip(*list(self.data.loc[self.all_dates[0]].index))
 
         if level == 0:
-            locations = set(Admin0)
+            locations = sorted(list(set(Admin0)))
             shape_file = 'ne_10m_admin_0_countries'
-            info_key = 'NAME_SORT'
+            info_keys = ['NAME_SORT', 'SOVEREIGNT']
             location_fixes = self.admin0_location_fixes
 
         elif level == 1:
             # TODO: Check shapes and location fixes for level 1 granularity
             raise NotImplementedError(f'level={level} implementation is incomplete')
 
-            locations = set(Admin1)
+            locations = sorted(list(set(Admin1)))
             shape_file = 'ne_10m_admin_1_states_provinces'
-            info_key = 'admin'
+            info_keys = ['admin']
             location_fixes = self.admin1_location_fixes
 
         else:
@@ -229,7 +236,7 @@ class CovidDataset:
 
         self.world.readshapefile(f'{shape_folder}/{shape_file}', 'shapes', drawbounds=False)
 
-        return locations, info_key, location_fixes
+        return locations, info_keys, location_fixes
 
     def reset_world(self):
         """ Clears the world data associated with the dataset.
