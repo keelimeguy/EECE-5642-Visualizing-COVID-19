@@ -5,14 +5,20 @@ by Keelin Becker-Wheeler, Apr 2020
 from matplotlib.collections import PatchCollection
 from bisect import bisect
 
+import matplotlib.colors as plt_colors
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 import datetime
 
 from .world_shapes import create_world_map, get_location_to_shape_mapping, get_drawable_patches
+
+##############################
+# Uncomment if manually debugging location fixes
+
 # from .world_shapes import search_for_location_fix
 # import sys
+##############################
 
 
 class CovidDataset:
@@ -20,7 +26,8 @@ class CovidDataset:
     # Mapping of location names to corrected standard location names are provided for each granularity level
     # Necessary due to mismatch between location names in covid dataset and standard location names
 
-    admin0_location_fixes = {
+    location_fixes = {
+        # Admin0
         'Bahamas': 'Bahamas, The',
         'Burma': 'Myanmar',
         'Congo (Brazzaville)': 'Congo, Rep.',
@@ -47,9 +54,23 @@ class CovidDataset:
         'US': 'United States of America',
         'Venezuela': 'Venezuela, RB',
         'West Bank and Gaza': 'Palestine (West Bank and Gaza)',
-    }
 
-    admin1_location_fixes = {
+        # Admin1
+        'Bonaire, Sint Eustatius and Saba': ['St. Eustatius', 'Bonaire', 'Saba'],
+        'Channel Islands': None,
+        'Curacao': 'Curaçao',
+        'Falkland Islands (Islas Malvinas)': 'Falkland Islands',
+        'French Guiana': 'Guyane française',
+        'Grand Princess': None,
+        'Hong Kong': 'Hong Kong S.A.R.',
+        'Inner Mongolia': 'Inner Mongol',
+        'Northwest Territories': ['Northwest Territories', 'Nunavut'],
+        'Quebec': 'Québec',
+        'Recovery aggregated': None,
+        'Reunion': 'La Réunion',
+        'St Martin': 'St. Martin',
+        'Tibet': 'Xizang',
+        'Virgin Islands': 'United States Virgin Islands',
     }
 
     def __init__(self, world_file, usa_file):
@@ -71,6 +92,7 @@ class CovidDataset:
         world_data['Cities'] = np.NaN
         world_data = world_data[[world_data.columns[i] for i in col_order]]
         world_data.rename({world_data.columns[i]: n for i, n in enumerate(col_names)}, axis=1, inplace=True)
+        world_data = world_data[world_data.Admin0 != 'US']
 
         # Map the US data with the following column names to the desired order
         # -- UID,iso2,iso3,code3,FIPS,Admin2,Province_State,Country_Region,
@@ -82,9 +104,9 @@ class CovidDataset:
 
         self.data = pd.concat([world_data, usa_data]).reset_index(drop=True)
 
-        # Set missing location names to empty strings
-        self.data['Admin1'].fillna('', inplace=True)
-        self.data['Admin2'].fillna('', inplace=True)
+        for level in [1, 2]:
+            # Set missing location names to empty string
+            self.data[f'Admin{level}'].fillna('', inplace=True)
 
         # Force timestamps to datetime format
         self.data['Date'] = pd.to_datetime(self.data['Date'])
@@ -95,7 +117,63 @@ class CovidDataset:
         all_dates, _, _, _ = zip(*list(self.data.index))
         self.all_dates = sorted(list(set(all_dates)))
 
+        self.find_reversed_location_fixes()
         self.world = None
+
+    def get_datapoints(self, locations=None, date=None, level=0, target='Confirmed'):
+        """
+        :param locations: A list of location names to get data for. Will use all locations if None, defaults to None
+        :param date: Timestamp at which to get data. Will use current time if None, defaults to None
+        :param level: Granularity of world data, higher is more detail. Either 0 or 1, defaults to 0
+        :param target: The target column to get data from, defaults to 'Confirmed'
+
+        :type locations: [str]|None, optional
+        :type date: datetime.datetime|None, optional
+        :type level: int, optional
+        :type target: str, optional
+
+        :returns: The data corresponding to the given parameters
+        :rtype: pd.DataFrame
+
+        :raises: ValueError
+        """
+
+        if level not in [0, 1, 2]:
+            raise ValueError(f'unexpected level={level}')
+
+        if date is None:
+            # Use current timestamp if not provided
+            date = datetime.datetime.now()
+
+        # Get a timestamp which is a valid date in the data
+        date = self.get_closest_previous_date(date)
+
+        if locations is None:
+            Admin = zip(*list(self.data.loc[date].index))
+            locations = sorted(list(set(Admin[level])))
+
+        data_dict = {}
+        for location in locations:
+            if location:
+                datapoint = self.data.loc[date].query(f'Admin{level} == "{location}"')[target].sum()
+                data_dict[location] = datapoint
+
+        df = pd.DataFrame(data=data_dict, index=[0]).transpose()
+        df.rename(columns={0: target}, inplace=True)
+        return df
+
+    def find_reversed_location_fixes(self):
+        """ Create reversed location fix mapping
+        """
+
+        self.rev_location_fixes = {}
+        for k, v in self.location_fixes.items():
+            if v is not None:
+                if isinstance(v, list):
+                    for vv in v:
+                        self.rev_location_fixes[vv] = k
+                else:
+                    self.rev_location_fixes[v] = k
 
     def get_closest_previous_date(self, date):
         """
@@ -136,16 +214,10 @@ class CovidDataset:
         :type shape_folder: str, optional
         :type level: int, optional
 
-        :returns: Map figure on which geographical data was drawn
-        :rtype: matplotlib.figure.Figure
+        :returns: A dictionary mapping levels to the plotted data at that level of granularity
+                  and the map figure on which geographical data was drawn
+        :rtype: ({int:pd.DataFrame}, matplotlib.figure.Figure)
         """
-
-        if date is None:
-            # Use current timestamp if not provided
-            date = datetime.datetime.now()
-
-        # Get a timestamp which is a valid date in the data
-        date = self.get_closest_previous_date(date)
 
         if self.world is None:
             # Generate empty world if not already exists
@@ -156,47 +228,62 @@ class CovidDataset:
         ax = fig.gca()
         ax.set_facecolor("#5D9BFF")
 
-        locations, info_keys, location_fixes = self.load_shape_info_at_level(level, shape_folder=shape_folder)
-        rev_location_fixes = {v: k for k, v in location_fixes.items() if v is not None}
-
         ##############################
         # If you need to manually check all location fix possibilities for a given location, uncomment the following:
 
-        # debug_location = 'Greenland'
-        # search_for_location_fix(self.world, debug_location, info_keys)
+        # debug_location = 'Nunavut'
+        # self.load_shape_info_at_level(level, shape_folder=shape_folder)
+        # search_for_location_fix(self.world, debug_location, None)
         # sys.exit(0)
 
         # You may also let the program search for and automatically print potential location fixes by setting the following
         debug_new_location_fixes = False
         ##############################
 
-        shape_map, empty_patches = get_location_to_shape_mapping(self.world, locations, info_keys, rev_location_fixes)
-        patches = get_drawable_patches(self.world, locations, shape_map, info_keys, location_fixes,
-                                       debug_new_location_fixes=debug_new_location_fixes)
+        maximum = 0
+        colors = None
 
-        # Store the polygons of locations which do not correspond with data
-        patches[None] = empty_patches
+        plotted_data_per_level = {}
 
-        # Draw shapes with color according to associated location data
-        colors = plt.cm.get_cmap('Reds')
-        maximum = np.log(self.data.loc[date]['Confirmed'].max())
-        for k, v in patches.items():
-            if v:
-                if k is None:
-                    facecolor = 'k'
-                    zorder = 2  # Make sure unknown locations are drawn behind known locations, in case of overlap
+        # Work up to highest granularity
+        for lvl in range(level+1):
+            locations, info_keys = self.load_shape_info_at_level(lvl, shape_folder=shape_folder)
 
-                else:
-                    datapoint = self.data.loc[date].query(f'Admin{level} == "{k}"')['Confirmed'].sum()
-                    value = np.log(datapoint) / maximum if datapoint != 0 else 0
+            shape_map, empty_patches = get_location_to_shape_mapping(self.world, locations, info_keys, self.rev_location_fixes)
+            patches = get_drawable_patches(self.world, locations, shape_map, info_keys, self.location_fixes,
+                                           debug_new_location_fixes=debug_new_location_fixes)
 
-                    # Change color based on data
-                    facecolor = colors(value)
-                    zorder = 3
+            # Track what data is being plotted
+            plotted_data_per_level[lvl] = self.get_datapoints(locations=patches.keys(), date=date, level=lvl)
 
-                ax.add_collection(PatchCollection(v, facecolor=facecolor, edgecolor='k', linewidths=1., zorder=zorder))
+            if lvl == 0:
+                # Store the polygons of locations which do not correspond with data
+                patches[None] = empty_patches
 
-        return fig
+                maximum = plotted_data_per_level[lvl].max()
+
+                # Set up a colormap with logarithmic scale
+                colors = plt.cm.ScalarMappable(norm=plt_colors.LogNorm(vmin=1, vmax=maximum), cmap='Reds')
+                colors.get_cmap().set_bad(colors.get_cmap()(0))
+
+            # Draw shapes with color according to associated location data
+            for k, v in patches.items():
+                if v:
+                    if k is None:
+                        # Color unknown locations black
+                        facecolor = 'k'
+                        zorder = 2  # Make sure unknown locations are drawn behind known locations, in case of overlap
+
+                    else:
+                        # Change color based on data value
+                        value = plotted_data_per_level[lvl].loc[k]
+                        facecolor = colors.to_rgba(value)
+                        zorder = 3 + lvl  # Make sure higher granularity is on top
+
+                    ax.add_collection(PatchCollection(v, facecolor=facecolor, edgecolor='k', linewidths=1., zorder=zorder))
+
+        fig.colorbar(colors)
+        return plotted_data_per_level, fig
 
     def load_shape_info_at_level(self, level, shape_folder='.'):
         """
@@ -206,11 +293,10 @@ class CovidDataset:
         :type level: int
         :type shape_folder: str, optional
 
-        :returns: A list of locations at the given level, a list of keys used to get the location from the shape info data,
-                  and a dictionary mapping location names to corrected names in the shape info data
-        :rtype: ([str], [str], {str:str})
+        :returns: A list of locations at the given level, a list of keys used to get the location from the shape info data
+        :rtype: ([str], [str])
 
-        :raises: NotImplementedError, ValueError
+        :raises: ValueError
         """
 
         # Get unique names of locations
@@ -220,23 +306,18 @@ class CovidDataset:
             locations = sorted(list(set(Admin0)))
             shape_file = 'ne_10m_admin_0_countries'
             info_keys = ['NAME_SORT', 'SOVEREIGNT']
-            location_fixes = self.admin0_location_fixes
 
         elif level == 1:
-            # TODO: Check shapes and location fixes for level 1 granularity
-            raise NotImplementedError(f'level={level} implementation is incomplete')
-
             locations = sorted(list(set(Admin1)))
             shape_file = 'ne_10m_admin_1_states_provinces'
-            info_keys = ['admin']
-            location_fixes = self.admin1_location_fixes
+            info_keys = ['name', 'admin']
 
         else:
             raise ValueError(f'unexpected level={level}')
 
         self.world.readshapefile(f'{shape_folder}/{shape_file}', 'shapes', drawbounds=False)
 
-        return locations, info_keys, location_fixes
+        return locations, info_keys
 
     def reset_world(self):
         """ Clears the world data associated with the dataset.

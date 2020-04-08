@@ -65,25 +65,31 @@ def get_drawable_patches(m, locations, shape_map, info_keys, location_fixes, deb
 
     # Find drawable polygons for each location with data
     for location in sorted(locations):
+        if not location:
+            continue
+
+        fixed_location = location
+        if location in location_fixes:
+            fixed_location = location_fixes[location]
+
         shapes = None
         try:
-            shapes = shape_map[location]
+            if isinstance(fixed_location, list):
+                shapes = []
+                for fixed_loc in fixed_location:
+                    shapes += shape_map[fixed_loc]
+            else:
+                shapes = shape_map[fixed_location]
 
         except KeyError as e:
             # The location name in the given list is not found in the available shape locations
 
-            # Check if a fix exists for location name inconsistencies
-            if location in location_fixes:
-                fixed_location = location_fixes[location]
-                shapes = shape_map[fixed_location]
+            if debug_new_location_fixes:
+                # Search for and print potential fixes for the location name inconsistencies (not guaranteed fixes)
+                search_for_location_fix(m, location, info_keys, automated_mode=True)
 
             else:
-                if debug_new_location_fixes:
-                    # Search for and print potential fixes for the location name inconsistencies (not guaranteed fixes)
-                    search_for_location_fix(m, location, info_keys, automated_mode=True)
-
-                else:
-                    raise e
+                raise e
 
         finally:
             if shapes is not None:
@@ -161,10 +167,12 @@ def search_for_location_fix(m, location, info_keys, automated_mode=False):
         if automated_mode:
             # Print the found mapping then exit
             if good:
-                print(f"\'{location}\': \'{info[info_keys[0]]}\',")
+                sys.stdout.buffer.write(f'\'{location}\': \'{info[info_keys[0]]}\','.encode('utf-8'))
+                print(flush=True)
                 break
             elif i == len(m.shapes_info)-1:
-                print(f"\'{location}\': None,")
+                sys.stdout.buffer.write(f'\'{location}\': None,'.encode('utf-8'))
+                print(flush=True)
                 break
 
         elif good:
