@@ -24,7 +24,8 @@ def create_world_map(ax, fill_color=True, draw_borders=True):
     """
 
     # Create a map projection space in order to display nodes at geographical positions
-    m = Basemap(projection='gall', resolution='c', ax=ax)
+    m = Basemap(projection='gall', resolution='c', llcrnrlat=-60, urcrnrlat=90,
+                llcrnrlon=-180, urcrnrlon=180, ax=ax)
 
     m.drawparallels(np.arange(-90, 90, 30), labels=[1, 0, 0, 0])
     m.drawmeridians(np.arange(m.lonmin, m.lonmax+30, 60), labels=[0, 0, 0, 1])
@@ -40,19 +41,19 @@ def create_world_map(ax, fill_color=True, draw_borders=True):
     return m
 
 
-def get_drawable_patches(m, locations, shape_map, info_key, location_fixes, debug_new_location_fixes=False):
+def get_drawable_patches(m, locations, shape_map, info_keys, location_fixes, debug_new_location_fixes=False):
     """
     :param m: The world basemap
     :param locations: A list of location names associated with data of interest
     :param shape_map: A dictionary mapping all locations from the shape info to lists of shape data
-    :param info_key: The key used to get location names from the shape info data
+    :param info_keys: List of keys used to get location names from the shape info data
     :param location_fixes: A mapping of names in the list of locations to corrected shape info location names
     :param debug_new_location_fixes: If True will search for and print fixes for name inconsistencies, defaults to False
 
     :type m: Basemap
     :type locations: [str]
     :type shape_map: {str:[Basemap.shape]}
-    :type info_key: str
+    :type info_keys: [str]
     :type location_fixes: {str:str}
     :type debug_new_location_fixes: bool, optional
 
@@ -64,25 +65,31 @@ def get_drawable_patches(m, locations, shape_map, info_key, location_fixes, debu
 
     # Find drawable polygons for each location with data
     for location in sorted(locations):
+        if not location:
+            continue
+
+        fixed_location = location
+        if location in location_fixes:
+            fixed_location = location_fixes[location]
+
         shapes = None
         try:
-            shapes = shape_map[location]
+            if isinstance(fixed_location, list):
+                shapes = []
+                for fixed_loc in fixed_location:
+                    shapes += shape_map[fixed_loc]
+            else:
+                shapes = shape_map[fixed_location]
 
         except KeyError as e:
             # The location name in the given list is not found in the available shape locations
 
-            # Check if a fix exists for location name inconsistencies
-            if location in location_fixes:
-                location = location_fixes[location]
-                shapes = shape_map[location]
+            if debug_new_location_fixes:
+                # Search for and print potential fixes for the location name inconsistencies (not guaranteed fixes)
+                search_for_location_fix(m, location, info_keys, automated_mode=True)
 
             else:
-                if debug_new_location_fixes:
-                    # Search for and print potential fixes for the location name inconsistencies (not guaranteed fixes)
-                    search_for_location_fix(m, location, info_key, automated_mode=True)
-
-                else:
-                    raise e
+                raise e
 
         finally:
             if shapes is not None:
@@ -94,16 +101,16 @@ def get_drawable_patches(m, locations, shape_map, info_key, location_fixes, debu
     return patches
 
 
-def get_location_to_shape_mapping(m, known_locations, info_key, rev_location_fixes):
+def get_location_to_shape_mapping(m, known_locations, info_keys, rev_location_fixes):
     """
     :param m: The world basemap
     :param known_locations: A list of location names associated with data of interest
-    :param info_key: The key used to get location names from the shape info data
+    :param info_keys: List of keys used to get location names from the shape info data
     :param rev_location_fixes: A mapping of corrected shape info location names to names in the known locations
 
     :type m: Basemap
     :type known_locations: [str]
-    :type info_key: str
+    :type info_keys: [str]
     :type rev_location_fixes: {str:str}
 
     :returns: A dictionary mapping all locations from the shape info to lists of shape data,
@@ -116,30 +123,36 @@ def get_location_to_shape_mapping(m, known_locations, info_key, rev_location_fix
 
     for info, shape in zip(m.shapes_info, m.shapes):
         # Add shape to map
-        if info[info_key] not in shape_map:
-            shape_map[info[info_key]] = []
-        shape_map[info[info_key]].append(shape)
+        seen = set()
+        for info_key in info_keys:
+            if info[info_key] in seen:
+                continue
+            seen.add(info[info_key])
 
-        # Add shape to empty_patches if not associated with data
-        if info[info_key] not in known_locations:
-            empty_patches.append(Polygon(np.array(shape), True))
-        elif info[info_key] in rev_location_fixes:
-            if rev_location_fixes[info[info_key]] not in known_locations:
+            if info[info_key] not in shape_map:
+                shape_map[info[info_key]] = []
+            shape_map[info[info_key]].append(shape)
+
+            # Add shape to empty_patches if not associated with data
+            if info[info_key] not in known_locations:
                 empty_patches.append(Polygon(np.array(shape), True))
+            elif info[info_key] in rev_location_fixes:
+                if rev_location_fixes[info[info_key]] not in known_locations:
+                    empty_patches.append(Polygon(np.array(shape), True))
 
     return shape_map, empty_patches
 
 
-def search_for_location_fix(m, location, info_key, automated_mode=False):
+def search_for_location_fix(m, location, info_keys, automated_mode=False):
     """
     :param m: The world basemap
     :param location: A location name to inspect
-    :param info_key: The key used to get location names from the shape info data
+    :param info_keys: List of keys used to get location names from the shape info data
     :param automated_mode: If True will print the first found mapping, else will print all shape info, defaults to False
 
     :type m: Basemap
     :type location: str
-    :type info_key: str
+    :type info_keys: [str]
     :type automated_mode: bool, optional
     """
 
@@ -154,10 +167,12 @@ def search_for_location_fix(m, location, info_key, automated_mode=False):
         if automated_mode:
             # Print the found mapping then exit
             if good:
-                print(f"\'{location}\': \'{info[info_key]}\',")
+                sys.stdout.buffer.write(f'\'{location}\': \'{info[info_keys[0]]}\','.encode('utf-8'))
+                print(flush=True)
                 break
             elif i == len(m.shapes_info)-1:
-                print(f"\'{location}\': None,")
+                sys.stdout.buffer.write(f'\'{location}\': None,'.encode('utf-8'))
+                print(flush=True)
                 break
 
         elif good:

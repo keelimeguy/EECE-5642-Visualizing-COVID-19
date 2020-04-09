@@ -18,8 +18,10 @@ from .utils.benchmark import benchmark_timing
 
 def main(args):
     dataset = benchmark_timing('Reading dataset', CovidDataset, args.world_data, args.usa_data)
-    benchmark_timing('Visualizing data', dataset.plot_data_as_world_colors, shape_folder=args.shapefiles, level=args.level)
+    plotted_data, _ = benchmark_timing('Visualizing data', dataset.plot_data_as_world_colors,
+                                       shape_folder=args.shapefiles, level=args.level)
 
+    print(plotted_data, flush=True)
     plt.show()
 
 
