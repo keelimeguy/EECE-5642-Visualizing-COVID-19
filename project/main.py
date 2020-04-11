@@ -10,19 +10,17 @@ import argparse
 import time
 import sys
 
-import matplotlib.pyplot as plt
-
 from .covid_data import CovidDataset
 from .utils.benchmark import benchmark_timing
 
 
 def main(args):
     dataset = benchmark_timing('Reading dataset', CovidDataset, args.world_data, args.usa_data)
-    plotted_data, _ = benchmark_timing('Visualizing data', dataset.plot_data_as_world_colors,
-                                       shape_folder=args.shapefiles, level=args.level)
+    video_file = benchmark_timing('Visualizing data', dataset.plot_data_over_time,
+                                  shape_folder=args.shapefiles, level=args.level,
+                                  filename=f'covid_visualization_{args.level}.avi')
 
-    print(plotted_data, flush=True)
-    plt.show()
+    print(f'Visualization created at: {video_file}')
 
 
 if __name__ == '__main__':
