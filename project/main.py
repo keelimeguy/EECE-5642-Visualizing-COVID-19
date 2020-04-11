@@ -3,7 +3,7 @@ Final Project
 Data Visualization
 EECE5642 - V30, Spring 2020
 
-by Keelin Becker-Wheeler and Yiwen Ma, Apr 2020
+by Keelin Becker-Wheeler, Apr 2020
 """
 
 import argparse

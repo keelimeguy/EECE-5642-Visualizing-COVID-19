@@ -1,3 +1,11 @@
+"""
+Final Project
+Data Visualization
+EECE5642 - V30, Spring 2020
+
+by Yiwen Ma, Apr 2020
+"""
+
 from .covid_data import CovidDataset
 import matplotlib.pyplot as plt
 import pandas as pd
