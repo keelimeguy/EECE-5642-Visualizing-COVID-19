@@ -3,7 +3,7 @@ Final Project
 Data Visualization
 EECE5642 - V30, Spring 2020
 
-by Keelin Becker-Wheeler, Apr 2020
+by Keelin Becker-Wheeler and Yiwen Ma, Apr 2020
 """
 
 import argparse
@@ -11,19 +11,26 @@ import time
 import sys
 
 import matplotlib.pyplot as plt
+import pandas as pd
+import numpy as np
 
 from .covid_data import CovidDataset
 from .utils.benchmark import benchmark_timing
+from .prediction import test, plot_chart_and_table
+from matplotlib import ticker
 
 
 def main(args):
     dataset = benchmark_timing('Reading dataset', CovidDataset, args.world_data, args.usa_data)
-    plotted_data, _ = benchmark_timing('Visualizing data', dataset.plot_data_as_world_colors,
-                                       shape_folder=args.shapefiles, level=args.level)
+    benchmark_timing('Visualizing data', dataset.plot_data_as_world_colors, shape_folder=args.shapefiles, level=args.level)
 
-    print(plotted_data, flush=True)
+    # plot world graph
     plt.show()
 
+    # plot top 10 countries confirmed with COVID-19 
+    # confirmed VS deaths
+    # predict confirmed cases after 5 days 
+    plot_chart_and_table(dataset)
 
 if __name__ == '__main__':
 
