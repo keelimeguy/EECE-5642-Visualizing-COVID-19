@@ -10,27 +10,24 @@ import argparse
 import time
 import sys
 
-import matplotlib.pyplot as plt
-import pandas as pd
-import numpy as np
-
 from .covid_data import CovidDataset
 from .utils.benchmark import benchmark_timing
-from .prediction import test, plot_chart_and_table
-from matplotlib import ticker
+from .prediction import plot_chart_and_table
 
 
 def main(args):
     dataset = benchmark_timing('Reading dataset', CovidDataset, args.world_data, args.usa_data)
-    benchmark_timing('Visualizing data', dataset.plot_data_as_world_colors, shape_folder=args.shapefiles, level=args.level)
+    video_file = benchmark_timing('Visualizing data', dataset.plot_data_over_time,
+                                  shape_folder=args.shapefiles, level=args.level,
+                                  filename=f'covid_visualization_{args.level}.avi')
 
-    # plot world graph
-    plt.show()
+    print(f'Visualization created at: {video_file}')
 
-    # plot top 10 countries confirmed with COVID-19 
+    # plot top 10 countries confirmed with COVID-19
     # confirmed VS deaths
-    # predict confirmed cases after 5 days 
+    # predict confirmed cases after 5 days
     plot_chart_and_table(dataset)
+
 
 if __name__ == '__main__':
 
