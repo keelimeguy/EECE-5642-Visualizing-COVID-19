@@ -2,6 +2,7 @@
 by Keelin Becker-Wheeler, Apr 2020
 """
 
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 from matplotlib.collections import PatchCollection
 from bisect import bisect
 
@@ -10,8 +11,11 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 import datetime
+import cv2
+import os
 
 from .world_shapes import create_world_map, get_location_to_shape_mapping, get_drawable_patches
+from .utils.progress_tracker import ProgressTracker
 
 ##############################
 # Uncomment if manually debugging location fixes
@@ -204,6 +208,66 @@ class CovidDataset:
 
         return fig
 
+    def plot_data_over_time(self, shape_folder='.', level=0, filename='covid_visualization.avi', overwrite=False):
+        """
+        :param shape_folder: Folder in which shape files exist, defaults to '.'
+        :param level: Granularity of world data, higher is more detail. Either 0 or 1, defaults to 0
+        :param filename: File to save video to, defaults to 'covid_visualization.avi'.
+        :param overwrite: If True will overwrite existing file, defaults to False.
+
+        :type shape_folder: str, optional
+        :type level: int, optional
+        :type filename: str, optional
+        :type overwrite: bool, optional
+
+        :returns: Filename of video file written.
+        :rtype: str
+        """
+
+        if (not overwrite) and os.path.exists(filename):
+            return filename
+
+        video_writer = None
+        admin = None
+        w = 16
+        h = 12
+        dpi = 100
+
+        with ProgressTracker('iterating dates') as progress:
+            for date in self.all_dates:
+                plotted_data, fig = self.plot_data_as_world_colors(date=date, shape_folder=shape_folder, level=level)
+                fig.suptitle(f'Confirmed Cases - {date.date()}', y=0.73)
+                fig.set_size_inches(w, h)
+
+                if admin is None:
+                    admin = plotted_data[level].index
+                else:
+                    # Sanity check that all countries are accounted for
+                    assert((admin == plotted_data[level].index).all())
+
+                # Create image from figure
+                fig.canvas.draw()
+                img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+                img = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+                img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+                img = img[int(dpi*h*.25):int(dpi*h*.75), int(dpi*w*.05):int(dpi*w*.95)]
+
+                plt.close(fig)
+                self.reset_world()
+
+                if video_writer is None:
+                    height, width, _ = img.shape
+                    size = (width, height)
+
+                    video_writer = cv2.VideoWriter(filename, cv2.VideoWriter_fourcc(*'DIVX'), 5, size)
+
+                video_writer.write(img)
+
+                progress.add(1, maximum=len(self.all_dates))
+
+        video_writer.release()
+        return filename
+
     def plot_data_as_world_colors(self, date=None, shape_folder='.', level=0):
         """
         :param date: Timestamp at which to plot data. Will use current time if None, defaults to None
@@ -280,9 +344,12 @@ class CovidDataset:
                         facecolor = colors.to_rgba(value)
                         zorder = 3 + lvl  # Make sure higher granularity is on top
 
-                    ax.add_collection(PatchCollection(v, facecolor=facecolor, edgecolor='k', linewidths=1., zorder=zorder))
+                    ax.add_collection(PatchCollection(v, facecolor=facecolor, edgecolor='k', linewidths=0.2, zorder=zorder))
 
-        fig.colorbar(colors)
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="5%", pad=0.02)
+        fig.colorbar(colors, cax=cax)
+
         return plotted_data_per_level, fig
 
     def load_shape_info_at_level(self, level, shape_folder='.'):
