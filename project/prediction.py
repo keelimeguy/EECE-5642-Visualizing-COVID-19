@@ -7,6 +7,7 @@ by Yiwen Ma, Apr 2020
 """
 
 from .covid_data import CovidDataset
+from .utils.progress_tracker import ProgressTracker
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
@@ -37,9 +38,27 @@ def plot_chart_and_table(dataset):
     # get top 10 
     top10 = confirmed.nlargest(10, 'Confirmed')
 
-    # growth ratio, calculated based on the source data
-    # source: https://ourworldindata.org/coronavirus
-    top10['growth_rate'] = [0.125, 0.077, 0.059, 0.083, 0.091, 0.016, 0.071, 0.125, 0.167, 0.11]
+    # helper function that prints a percentage progress bar
+    with ProgressTracker('finding growth rates') as progress:
+
+        top10_countries = list(top10.index)
+
+    # iterate over timestamps in reverse
+        for i, date in enumerate(dataset.all_dates[::-1]):
+            data_at_date = dataset.get_datapoints(date=date)
+            for country in top10_countries.copy():
+                ratio = top10.loc[country]['Confirmed'] / data_at_date.loc[country]['Confirmed']
+
+                if ratio >= 2.0:
+                    # stop searching for this country when we find doubling point
+                    top10_countries.remove(country)
+                    # growth ratio, calculated based on the source data
+                    top10.at[country, 'growth_rate'] = ratio / (2*i)
+                    progress.add(10)
+
+            # break when we found growth rate for each top 10 country
+            if not top10_countries:
+                break
     
     # predict the confirmed cases for each country after 5 days
     # final result would be round up to an integer
@@ -72,12 +91,12 @@ def plot_chart_and_table(dataset):
     ax2 = ax.twinx()
 
     # Add ratio plots
-    ax2.plot(list(top10.index.values),top10['death_ratio'],color='brown', marker='o', label= 'death ratio')
+    ax2.plot(list(top10.index.values),top10['death_ratio'],color='green', marker='o', label= 'death ratio')
     ax2.plot(list(top10.index.values),top10['growth_rate'],color='purple', marker='^', label = 'confrimed case growth rate')
     ax2.set_ylabel('ratio', fontweight='bold')
     plt.title('Top 10 Countries Confirmed Cases (COVID-19) w/ Predication')
  
     # Create legend & Show graphic  
     ax.legend(loc=0)
-    plt.legend()
+    plt.legend(loc='upper left')
     plt.show()
