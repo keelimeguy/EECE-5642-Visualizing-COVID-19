@@ -12,6 +12,7 @@ import sys
 
 from .covid_data import CovidDataset
 from .utils.benchmark import benchmark_timing
+from .prediction import plot_chart_and_table
 
 
 def main(args):
@@ -21,6 +22,11 @@ def main(args):
                                   filename=f'covid_visualization_{args.level}.avi')
 
     print(f'Visualization created at: {video_file}')
+
+    # plot top 10 countries confirmed with COVID-19
+    # confirmed VS deaths
+    # predict confirmed cases after 5 days
+    plot_chart_and_table(dataset)
 
 
 if __name__ == '__main__':
