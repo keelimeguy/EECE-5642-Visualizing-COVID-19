@@ -14,5 +14,14 @@ Tested on:
 
 `pip install -r requirements.txt`
 
+#### Potential Issues
+You may be unable to find the Basemap library automatically through the `pip` command.
+
+If this is the case, the following steps may help to solve the issue:
+
+1. `sudo apt-get install -y libgeos-dev`
+2. `pip install https://github.com/matplotlib/basemap/archive/v1.2.1rel.tar.gz`
+3. `pip install -r requirements.txt`
+
 ### Command line
 `python -m project.main -h`
